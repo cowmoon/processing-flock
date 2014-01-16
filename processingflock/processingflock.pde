@@ -6,14 +6,24 @@
 
 Flock flock;
 int LEADERWEIGHT = 10000;
-int LIEUTENANTWEIGHT = LEADERWEIGHT /3 ;
+int LIEUTENANTWEIGHT = LEADERWEIGHT /3 ; // Not used yet
+int simulationtime =0;
+int countOfLeaders = 0;
+int reignLength = 500;
+float maxSpeedRegular = 3;
+float maxSpeedLeader = 4.01;
+
+float maxForceRegular = 0.09;
+float maxForceLeader = 0.1;
+
+float max=0;
+
 
 void setup() {
   size(1080, 720);
   flock = new Flock();
   // Add an initial set of boids into the system
-  flock.addBoid(new Boid(width/2, height/2, true)); // Leader boid
-  for (int i = 0; i < 50; i++) {
+  for (int i = 0; i < 150; i++) {
     flock.addBoid(new Boid(width/2, height/2));
   }
 }
@@ -21,6 +31,7 @@ void setup() {
 void draw() {
   background(50);
   flock.run();
+  simulationtime++;
 }
 
 // Add a new boid into the System
@@ -37,17 +48,14 @@ class Boid {
   PVector location;
   PVector velocity;
   PVector acceleration;
-  float r;
+  PVector gravityCenter;
+  float r;   // size of the plane
   float maxforce;    // Maximum steering force
   float maxspeed;    // Maximum speed
   boolean leader; 
+  float mass;
 
-  Boid (float x, float y)
-  {
-    this(x, y, false);
-  }
-
-  Boid(float x, float y, boolean requestLeadership) 
+  Boid(float x, float y) 
   {
     acceleration = new PVector(0, 0);
 
@@ -57,31 +65,59 @@ class Boid {
     // Leaving the code temporarily this way so that this example runs in JS
     float angle = random(TWO_PI);
     velocity = new PVector(cos(angle), sin(angle));
-
     location = new PVector(x, y);
-    r = 2.0;
-    maxspeed = 2;
-    maxforce = 0.03;
-    leader = requestLeadership; // add some verification to have only one leader per flock , in the future. Implement a succession plan.
-    if (leader == true)
-    {
-      maxspeed = 2.0; // leader goes slower than other boids to allow them to catch up when necessary
-      maxforce = 0.02; // leader is more set in his course than others.
-    }
+    maxspeed = maxSpeedRegular;
+    maxforce = maxForceRegular;
+    mass = random(2, 7);
+    r = 2.0 * mass/4;
   }
 
 
+  void abdicate()
+  {
+    if (this.leader == true)
+    {
+      this.leader = false;
+      countOfLeaders--;
+      this.maxspeed = maxSpeedRegular;
+      this.maxforce = maxForceRegular;
+    }
+  }
+
+  void elect()
+  {
+    if (this.leader == false)
+    {
+      this.leader = true;
+      countOfLeaders++;
+      this.maxspeed = maxSpeedLeader;
+      this.maxforce = maxForceLeader;
+    }
+  }
 
   void run(ArrayList<Boid> boids) {
+
+    if (countOfLeaders<5)
+    {
+      elect();
+    }
+    else
+      if (simulationtime % reignLength == 0)
+      {
+        abdicate();
+      }
+
     flock(boids);
     update();
     borders();
     render();
   }
 
+
   void applyForce(PVector force) {
-    // We could add mass here if we want A = F / M
+    // We could add mass here if we want A = F / M - UPDATE: we just did.
     acceleration.add(force);
+    acceleration.mult(1/mass);
   }
 
   // We accumulate a new acceleration each time based on three rules
@@ -90,16 +126,13 @@ class Boid {
     PVector ali = align(boids);      // Alignment
     PVector coh = cohesion(boids);   // Cohesion
     // Arbitrarily weight these forces
-    sep.mult(1.5);
-    ali.mult(1.0);
+    sep.mult(1.8);
+    ali.mult(1.5);
     coh.mult(1.0);
     // Add the force vectors to acceleration
+    applyForce(ali);
     applyForce(sep); // the leader tries to maintain a distance from other other boids
-    if (this.leader == false) // but the leader doesn't follow anyone, the flock follows him.
-    {
-      applyForce(ali);
-      applyForce(coh);
-    }
+    applyForce(coh);
   }
 
   // Method to update location
@@ -127,6 +160,7 @@ class Boid {
 
     // Steering = Desired minus Velocity
     PVector steer = PVector.sub(desired, velocity);
+
     steer.limit(maxforce);  // Limit to maximum steering force
     return steer;
   }
@@ -136,7 +170,6 @@ class Boid {
     float theta = velocity.heading2D() + radians(90);
     // heading2D() above is now heading() but leaving old syntax until Processing.js catches up
 
-    fill(200, 100);
     if (this.leader == true) // Leader is red
     {
       stroke(255, 0, 0);
@@ -145,6 +178,7 @@ class Boid {
     else
     {
       stroke(255);
+      fill(200, 100);
     }
     pushMatrix();
     translate(location.x, location.y);
@@ -177,11 +211,11 @@ class Boid {
 
       if (other.leader == true)
       {
-        desiredseparation = 5.0f; // try to stick closer to the leader than you would to other boids.
+        desiredseparation = 50.0f; // try to stick closer to the leader than you would to other boids.
       }
       else
       {
-        desiredseparation = 25.0f;
+        desiredseparation = 100.0f;
       }
       // If the distance is greater than 0 and less than an arbitrary amount (0 when you are yourself)
       if ((d > 0) && (d < desiredseparation)) {
@@ -292,17 +326,22 @@ class Boid {
 class Flock {
   ArrayList<Boid> boids; // An ArrayList for all the boids
 
-    Flock() {
+    Flock() 
+  {
     boids = new ArrayList<Boid>(); // Initialize the ArrayList
   }
 
-  void run() {
-    for (Boid b : boids) {
+  void run() 
+  {
+    for (Boid b : boids)
+    {
       b.run(boids);  // Passing the entire list of boids to each boid individually
     }
   }
 
-  void addBoid(Boid b) {
+  void addBoid(Boid b) 
+  {
     boids.add(b);
   }
 }
+
